@@ -1,0 +1,85 @@
+services:
+  pricing-service:
+    build: ./pricing-service
+    ports:
+      - "8081:8080"
+    networks: [rca-net]
+
+  placement-service:
+    build: ./placement-service
+    ports:
+      - "8082:8080"
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      PRICING_SERVICE_URL: "http://pricing-service:8080"
+    depends_on: [pricing-service, otel-collector]
+    networks: [rca-net]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./observability/otel-collector/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    depends_on: [tempo]
+    networks: [rca-net]
+
+  tempo:
+    image: grafana/tempo:2.7.2
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
+    networks: [rca-net]
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks: [rca-net]
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus, tempo]
+    networks: [rca-net]
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.20
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    networks: [rca-net]
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.19.20
+    environment:
+      ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+    ports:
+      - "5601:5601"
+    depends_on: [elasticsearch]
+    networks: [rca-net]
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.19.20
+    user: root
+    command: ["--strict.perms=false", "-e"]
+    volumes:
+      - ./observability/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [elasticsearch]
+    networks: [rca-net]
+
+networks:
+  rca-net:
+    driver: bridge

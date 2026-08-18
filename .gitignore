@@ -1,0 +1,13 @@
+target/
+*.class
+*.jar
+!maven-wrapper.jar
+
+# Go
+placement-service/placement-service
+
+# OS / IDE
+.DS_Store
+.idea/
+*.iml
+.vscode/
