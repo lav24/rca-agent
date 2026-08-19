@@ -34,8 +34,26 @@ services:
     image: prom/prometheus:latest
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
     ports:
       - "9090:9090"
+    depends_on: [alertmanager]
+    networks: [rca-net]
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    ports:
+      - "9093:9093"
+    depends_on: [webhook-receiver]
+    networks: [rca-net]
+
+  webhook-receiver:
+    image: mendhak/http-https-echo:34
+    ports:
+      - "9099:8080"
     networks: [rca-net]
 
   grafana:

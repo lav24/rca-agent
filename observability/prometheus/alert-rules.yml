@@ -1,0 +1,56 @@
+groups:
+  - name: rca-agent-service-health
+    rules:
+      - alert: PricingServiceHighErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{job="pricing-service",status=~"5.."}[1m]))
+          /
+          sum(rate(http_server_requests_seconds_count{job="pricing-service"}[1m]))
+          > 0.1
+        for: 30s
+        labels:
+          severity: critical
+          service: pricing-service
+        annotations:
+          summary: "pricing-service error rate above 10%"
+          description: "More than 10% of requests to pricing-service returned 5xx over the last 1m."
+
+      - alert: PricingServiceHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_server_requests_seconds_bucket{job="pricing-service"}[1m])) by (le)
+          ) > 1
+        for: 30s
+        labels:
+          severity: warning
+          service: pricing-service
+        annotations:
+          summary: "pricing-service p95 latency above 1s"
+          description: "95th percentile request latency for pricing-service exceeded 1s over the last 1m."
+
+      - alert: PlacementServiceHighErrorRate
+        expr: |
+          sum(rate(http_request_duration_seconds_count{job="placement-service",status=~"5.."}[1m]))
+          /
+          sum(rate(http_request_duration_seconds_count{job="placement-service"}[1m]))
+          > 0.1
+        for: 30s
+        labels:
+          severity: critical
+          service: placement-service
+        annotations:
+          summary: "placement-service error rate above 10%"
+          description: "More than 10% of requests to placement-service returned 5xx over the last 1m."
+
+      - alert: PlacementServiceHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="placement-service"}[1m])) by (le)
+          ) > 1
+        for: 30s
+        labels:
+          severity: warning
+          service: placement-service
+        annotations:
+          summary: "placement-service p95 latency above 1s"
+          description: "95th percentile request latency for placement-service exceeded 1s over the last 1m."

@@ -148,7 +148,7 @@ func main() {
 	defer shutdown()
 
 	mux := http.NewServeMux()
-	mux.Handle("/place", otelhttp.NewHandler(http.HandlerFunc(placeHandler), "place"))
+	mux.Handle("/place", withMetrics("/place", otelhttp.NewHandler(http.HandlerFunc(placeHandler), "place")))
 	mux.HandleFunc("/health", healthHandler)
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/admin/fault", faultAdminHandler)

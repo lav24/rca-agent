@@ -75,6 +75,31 @@ Same API shape on placement-service at `:8082/admin/fault`. Fault types:
 Each active fault type is also exposed as a Prometheus gauge:
 `fault_injection_active{type="latency|error|bad_data"}`.
 
+## Alerting
+
+Prometheus evaluates symptom-based alert rules (`observability/prometheus/alert-rules.yml`)
+against real HTTP metrics from both services — error rate and p95 latency, not the
+fault-injection flag itself, so alerts fire the same way a real incident would.
+Firing alerts get pushed to Alertmanager, which routes them (via `observability/alertmanager/alertmanager.yml`)
+to a webhook — currently a throwaway echo container standing in for what becomes
+the context-assembly service in a later phase.
+
+To see it fire end-to-end:
+
+```bash
+# Push placement-service's error rate over the 10% threshold for 30+ seconds
+curl -X POST http://localhost:8082/admin/fault -H 'Content-Type: application/json' -d '{"type": "error", "durationSeconds": 60}'
+for i in {1..20}; do curl -s "http://localhost:8082/place?route=DEL-BLR" > /dev/null; sleep 2; done
+```
+
+Then check:
+- **http://localhost:9090/alerts** — the rule should move from `Pending` to `Firing`
+- Alertmanager UI: **http://localhost:9093**
+- The actual delivered payload: `docker-compose logs webhook-receiver`
+
+Note: `bad_data` deliberately has no alert rule — it's a silent correctness bug,
+invisible to error-rate/latency monitoring by design.
+
 ## Where to look
 
 | Tool | URL |
