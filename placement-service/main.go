@@ -72,6 +72,19 @@ func placeHandler(w http.ResponseWriter, r *http.Request) {
 		route = "UNKNOWN"
 	}
 
+	fault, _, _ := state.current()
+
+	if fault == faultLatency {
+		log.Printf(`{"level":"warn","service":"placement-service","route":"%s","msg":"injected fault active","type":"latency","delayMs":%d}`, route, injectedLatency.Milliseconds())
+		time.Sleep(injectedLatency)
+	}
+
+	if fault == faultError {
+		log.Printf(`{"level":"error","service":"placement-service","route":"%s","msg":"injected fault active","type":"error"}`, route)
+		http.Error(w, "placement computation failed", http.StatusInternalServerError)
+		return
+	}
+
 	client := http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, pricingServiceURL+"/price?route="+route, nil)
 	resp, err := client.Do(req)
@@ -98,11 +111,17 @@ func placeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	operatorID := "OP-" + strconv.Itoa(rand.Intn(9000)+1000)
+	if fault == faultBadData {
+		log.Printf(`{"level":"warn","service":"placement-service","route":"%s","msg":"injected fault active","type":"bad_data"}`, route)
+		operatorID = ""
+	}
+
 	result := placeResponse{
 		Route:      priceData.Route,
 		Price:      priceData.Price,
 		Currency:   priceData.Currency,
-		OperatorID: "OP-" + strconv.Itoa(rand.Intn(9000)+1000),
+		OperatorID: operatorID,
 		PlacedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 
@@ -132,6 +151,7 @@ func main() {
 	mux.Handle("/place", otelhttp.NewHandler(http.HandlerFunc(placeHandler), "place"))
 	mux.HandleFunc("/health", healthHandler)
 	mux.Handle("/metrics", promhttp.Handler())
+	mux.HandleFunc("/admin/fault", faultAdminHandler)
 
 	log.Println(`{"level":"info","service":"placement-service","msg":"starting on :8080"}`)
 	if err := http.ListenAndServe(":8080", mux); err != nil {

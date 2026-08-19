@@ -44,6 +44,37 @@ Generate some traffic:
 curl "http://localhost:8082/place?route=DEL-BLR"
 ```
 
+## Fault injection
+
+Both services expose a runtime-toggleable fault-injection admin API (no restart
+needed) — this is what gives the eventual RCA agent something real to diagnose.
+
+```bash
+# Activate a fault
+curl -X POST http://localhost:8081/admin/fault \
+  -H 'Content-Type: application/json' \
+  -d '{"type": "latency", "durationSeconds": 60}'
+
+# Check what's currently active (also the eval harness's ground-truth source)
+curl http://localhost:8081/admin/fault
+
+# Clear it early
+curl -X POST http://localhost:8081/admin/fault \
+  -H 'Content-Type: application/json' \
+  -d '{"type": "none"}'
+```
+
+Same API shape on placement-service at `:8082/admin/fault`. Fault types:
+
+| type | effect | detectable via |
+|---|---|---|
+| `latency` | adds a fixed delay, response still succeeds | traces / latency metrics |
+| `error` | returns HTTP 500 immediately | error-rate metrics / logs |
+| `bad_data` | returns a fast, valid `200` with corrupted data (`price: -1` on pricing-service, empty `operatorId` on placement-service) | not visible in metrics or logs at all — only in the actual response payload |
+
+Each active fault type is also exposed as a Prometheus gauge:
+`fault_injection_active{type="latency|error|bad_data"}`.
+
 ## Where to look
 
 | Tool | URL |
