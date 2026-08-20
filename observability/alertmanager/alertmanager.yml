@@ -8,5 +8,5 @@ route:
 receivers:
   - name: webhook-receiver
     webhook_configs:
-      - url: http://webhook-receiver:8080/alert
+      - url: http://context-assembly-service:8080/webhook/alert
         send_resolved: true

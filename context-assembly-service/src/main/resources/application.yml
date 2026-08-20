@@ -1,0 +1,26 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: context-assembly-service
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+
+rca:
+  prometheus-url: ${PROMETHEUS_URL:http://prometheus:9090}
+  tempo-url: ${TEMPO_URL:http://tempo:3200}
+  elasticsearch-url: ${ELASTICSEARCH_URL:http://elasticsearch:9200}
+  litellm-url: ${LITELLM_URL:http://litellm:4000}
+  lookback-seconds: 120
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name}]"

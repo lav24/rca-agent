@@ -47,13 +47,30 @@ services:
     command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
     ports:
       - "9093:9093"
-    depends_on: [webhook-receiver]
+    depends_on: [context-assembly-service]
     networks: [rca-net]
 
-  webhook-receiver:
-    image: mendhak/http-https-echo:34
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.97.0
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
     ports:
-      - "9099:8080"
+      - "4000:4000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [rca-net]
+
+  context-assembly-service:
+    build: ./context-assembly-service
+    ports:
+      - "8083:8080"
+    environment:
+      PROMETHEUS_URL: "http://prometheus:9090"
+      TEMPO_URL: "http://tempo:3200"
+      ELASTICSEARCH_URL: "http://elasticsearch:9200"
+      LITELLM_URL: "http://litellm:4000"
+    depends_on: [elasticsearch, litellm]
     networks: [rca-net]
 
   grafana:

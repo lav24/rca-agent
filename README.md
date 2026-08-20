@@ -100,6 +100,78 @@ Then check:
 Note: `bad_data` deliberately has no alert rule — it's a silent correctness bug,
 invisible to error-rate/latency monitoring by design.
 
+## Context assembly
+
+`context-assembly-service` (Java) is what Alertmanager actually calls when an
+alert fires (`POST /webhook/alert`, replacing the earlier echo-container
+placeholder). For each firing alert, it queries Prometheus (error rate, p95
+latency, active injected fault), Tempo (recent error traces for that service),
+and Elasticsearch (recent log lines for that service) for the alert's time
+window, assembles everything into one structured JSON bundle, logs it, and
+returns it in the HTTP response — this bundle is what an LLM will eventually
+reason over in a later phase.
+
+Test it directly without waiting for a real alert:
+
+```bash
+curl -X POST http://localhost:8083/webhook/alert \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "status": "firing",
+    "alerts": [{
+      "status": "firing",
+      "labels": {"alertname": "PlacementServiceHighErrorRate", "service": "placement-service", "severity": "critical"},
+      "annotations": {"summary": "placement-service error rate above 10%"},
+      "startsAt": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "fingerprint": "test123"
+    }]
+  }'
+```
+
+Known scope limits for this phase: trace lookup only searches `status=error`
+spans (won't surface anything for a pure-latency incident, since those spans
+aren't marked as errors), and there's no retry/backoff if one of the three
+backends is temporarily unreachable — a failed sub-query just yields empty/null
+data in that section of the bundle rather than failing the whole request.
+
+## LLM reasoning
+
+A self-hosted LiteLLM proxy (`litellm`, port 4000) exposes one model, `rca-llm`,
+which routes to a local Llama 3.1 8B model served by Ollama (running natively on
+the host, not in Docker, to get Apple Silicon GPU acceleration — the proxy reaches
+it via `host.docker.internal`). `context-assembly-service` calls it through
+LiteLLM's OpenAI-compatible API, never talking to Ollama directly — swapping the
+underlying model later (e.g. to Claude, via a real API key) only means editing
+`litellm/config.yaml`, no application code changes.
+
+Prerequisite (run once, outside Docker):
+```bash
+brew install ollama
+ollama serve &          # or: brew services start ollama
+ollama pull llama3.1:8b
+```
+
+Test reasoning directly against a hand-built bundle:
+```bash
+curl -X POST http://localhost:8083/reason \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "alert": {"alertname": "PlacementServiceHighErrorRate", "service": "placement-service", "severity": "critical", "summary": "error rate above 10%", "startedAt": "2026-01-01T00:00:00Z"},
+    "metrics": {"errorRate": 1.0, "p95LatencySeconds": 0.005, "activeInjectedFault": "error"},
+    "traces": [],
+    "logs": ["level=error service=placement-service msg=\"injected fault active\" type=error"]
+  }' | python3 -m json.tool
+```
+
+Or trigger the full pipeline end-to-end (alert fires -> context assembled ->
+LLM diagnoses it), same fault-injection trick as before:
+```bash
+curl -X POST http://localhost:8082/admin/fault -H 'Content-Type: application/json' -d '{"type": "error", "durationSeconds": 60}'
+for i in {1..20}; do curl -s "http://localhost:8082/place?route=DEL-BLR" > /dev/null; sleep 2; done
+docker-compose logs context-assembly-service | grep "RCA diagnosis produced"
+```
+
 ## Where to look
 
 | Tool | URL |
